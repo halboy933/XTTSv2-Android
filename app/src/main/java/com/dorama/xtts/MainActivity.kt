@@ -18,9 +18,9 @@ class MainActivity : AppCompatActivity() {
   root.addView(TextView(this).apply{text="Russian • ONNX Runtime • INT8 GPT"})
   val import=Button(this).apply{text="Import voice WAV (3–6 sec)"}
   val text=EditText(this).apply{hint="Русский текст";setText("Сегодня я хочу рассказать вам об одной удивительной истории.")}
-  val download=Button(this).apply{text="Download / verify XTTS models"}
-  val generate=Button(this).apply{text="Generate WAV";isEnabled=false}
-  status=TextView(this).apply{text="Status: ONNX Runtime check…"}
+  val download = Button(this).apply { setText("Download / verify XTTS models") }
+  val generate = Button(this).apply { setText("Generate WAV"); isEnabled = false }
+  status = TextView(this).apply { setText("Status: ONNX Runtime check…") }
   root.addView(import);root.addView(text);root.addView(download);root.addView(generate);root.addView(status)
   setContentView(root)
   runCatching { OrtEnvironment.getEnvironment() }.onSuccess{status.text="Status: ONNX Runtime OK. Import reference and download models."}.onFailure{status.text="ONNX Runtime error: ${it.message}"}
