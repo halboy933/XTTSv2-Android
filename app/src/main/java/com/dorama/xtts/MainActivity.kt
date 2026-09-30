@@ -17,12 +17,12 @@ class MainActivity : AppCompatActivity() {
  override fun onCreate(savedInstanceState: Bundle?) {
   super.onCreate(savedInstanceState)
   val root=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(32,32,32,32)}
-  root.addView(TextView(this).apply{text="XTTS-v2 Android V1";textSize=24f})
+  root.addView(TextView(this).apply{text="XTTS-v2 Android V2 • Stage 2";textSize=24f})
   root.addView(TextView(this).apply{text="Russian • ONNX Runtime • INT8 GPT"})
   val import=Button(this).apply{text="Import voice WAV (3–6 sec)"}
   val text=EditText(this).apply{hint="Русский текст";setText("Сегодня я хочу рассказать вам об одной удивительной истории.")}
   val download = Button(this).apply { setText("Download / verify XTTS models") }
-  val generate = Button(this).apply { setText("Generate WAV"); isEnabled = false }
+  val generate = Button(this).apply { setText("Inspect ONNX interfaces"); isEnabled = true }
   status = TextView(this).apply { setText("Status: ONNX Runtime check…") }
   root.addView(import);root.addView(text);root.addView(download);root.addView(generate);root.addView(status)
   setContentView(root)
@@ -36,7 +36,18 @@ class MainActivity : AppCompatActivity() {
       addCategory(Intent.CATEGORY_OPENABLE)
     }, 8)
   }
-  generate.setOnClickListener { status.text = "Full XTTS inference is not implemented in stage 1" }
+  generate.setOnClickListener {
+    status.text = "Opening ONNX models..."
+    Thread {
+      val result = runCatching { inspectModels() }
+      runOnUiThread {
+        status.text = result.fold(
+          { it },
+          { "ONNX inspect failed: ${it.message}" }
+        )
+      }
+    }.start()
+  }
  }
  override fun onActivityResult(requestCode:Int,resultCode:Int,data:Intent?) {
   super.onActivityResult(requestCode,resultCode,data)
@@ -75,6 +86,56 @@ class MainActivity : AppCompatActivity() {
         entry=zip.nextEntry
       }
     }
+  }
+ }
+
+
+ private fun inspectModels():String {
+  val models=modelDir.walkTopDown()
+    .filter { it.isFile && it.extension.equals("onnx",true) }
+    .toList()
+
+  require(models.isNotEmpty()) {
+    "Models are missing. Import model ZIP first."
+  }
+
+  val env=OrtEnvironment.getEnvironment()
+  val opts=OrtSession.SessionOptions()
+
+  return try {
+    buildString {
+      models.sortedBy { it.name }.forEach { model ->
+
+        env.createSession(model.absolutePath,opts).use { session ->
+
+          append("\n[")
+          append(model.name)
+          append("]\n")
+
+          append("IN:\n")
+
+          session.inputInfo.entries.forEach { (name,info) ->
+            append("  ")
+            append(name)
+            append(" : ")
+            append(info.info.toString())
+            append("\n")
+          }
+
+          append("OUT:\n")
+
+          session.outputInfo.entries.forEach { (name,info) ->
+            append("  ")
+            append(name)
+            append(" : ")
+            append(info.info.toString())
+            append("\n")
+          }
+        }
+      }
+    }
+  } finally {
+    opts.close()
   }
  }
 
