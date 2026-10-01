@@ -4,6 +4,9 @@ import android.app.Activity
 import android.content.Intent
 import android.os.Bundle
 import android.widget.*
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import androidx.appcompat.app.AppCompatActivity
 import ai.onnxruntime.OrtEnvironment
 import java.io.File
@@ -13,19 +16,48 @@ import ai.onnxruntime.OrtSession
 class MainActivity : AppCompatActivity() {
  private lateinit var status: TextView
  private var refPath: String? = null
+ private var lastOnnxReport: String = ""
  private val modelDir by lazy { File(filesDir, "xtts_models") }
  override fun onCreate(savedInstanceState: Bundle?) {
   super.onCreate(savedInstanceState)
-  val root=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(32,32,32,32)}
-  root.addView(TextView(this).apply{text="XTTS-v2 Android V2 • Stage 2";textSize=24f})
+  val content=LinearLayout(this).apply{
+   orientation=LinearLayout.VERTICAL
+   setPadding(32,32,32,32)
+  }
+  val scroll=ScrollView(this).apply{
+   isFillViewport=true
+   addView(content)
+  }
+  val root=content
+  root.addView(TextView(this).apply{text="XTTS-v2 Android V2 • Stage 2.1";textSize=24f})
   root.addView(TextView(this).apply{text="Russian • ONNX Runtime • INT8 GPT"})
   val import=Button(this).apply{text="Import voice WAV (3–6 sec)"}
   val text=EditText(this).apply{hint="Русский текст";setText("Сегодня я хочу рассказать вам об одной удивительной истории.")}
   val download = Button(this).apply { setText("Download / verify XTTS models") }
   val generate = Button(this).apply { setText("Inspect ONNX interfaces"); isEnabled = true }
-  status = TextView(this).apply { setText("Status: ONNX Runtime check…") }
-  root.addView(import);root.addView(text);root.addView(download);root.addView(generate);root.addView(status)
-  setContentView(root)
+  status = TextView(this).apply {
+   setText("Status: ONNX Runtime check…")
+   setTextIsSelectable(true)
+  }
+  val copyReport = Button(this).apply {
+   setText("Copy ONNX info")
+   isEnabled = false
+  }
+  root.addView(import)
+  root.addView(text)
+  root.addView(download)
+  root.addView(generate)
+  root.addView(copyReport)
+  root.addView(status)
+  setContentView(scroll)
+
+  copyReport.setOnClickListener {
+   if(lastOnnxReport.isNotBlank()) {
+    val clipboard=getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+    clipboard.setPrimaryClip(ClipData.newPlainText("XTTS ONNX interfaces",lastOnnxReport))
+    Toast.makeText(this,"ONNX info copied",Toast.LENGTH_SHORT).show()
+   }
+  }
   runCatching { OrtEnvironment.getEnvironment() }.onSuccess{status.text="Status: ONNX Runtime OK. Import reference and download models."}.onFailure{status.text="ONNX Runtime error: ${it.message}"}
   import.setOnClickListener{startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply{type="audio/*";addCategory(Intent.CATEGORY_OPENABLE)},7)}
   // XTTS_V2_STAGE1: import model archive; verify that ONNX sessions open.
@@ -42,8 +74,16 @@ class MainActivity : AppCompatActivity() {
       val result = runCatching { inspectModels() }
       runOnUiThread {
         status.text = result.fold(
-          { it },
-          { "ONNX inspect failed: ${it.message}" }
+          {
+            lastOnnxReport=it
+            copyReport.isEnabled=true
+            it
+          },
+          {
+            lastOnnxReport=""
+            copyReport.isEnabled=false
+            "ONNX inspect failed: ${it.message}"
+          }
         )
       }
     }.start()
