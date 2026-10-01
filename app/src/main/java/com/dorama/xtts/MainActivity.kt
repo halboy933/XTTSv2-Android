@@ -40,7 +40,7 @@ class MainActivity : AppCompatActivity() {
   })
 
   val import=Button(this).apply { text="Import voice WAV (3–6 sec)" }
-  val text=EditText(this).apply {
+  val inputText=EditText(this).apply {
    hint="Русский текст (будет использоваться на Stage 3B)"
    setText("Сегодня я хочу рассказать вам об одной удивительной истории.")
   }
@@ -55,7 +55,7 @@ class MainActivity : AppCompatActivity() {
   }
 
   content.addView(import)
-  content.addView(text)
+  content.addView(inputText)
   content.addView(download)
   content.addView(generate)
   content.addView(copyReport)
