@@ -15,19 +15,17 @@ android {
         versionName = "0.2.1"
     }
 
-    signingConfigs {
-        create("release") {
-            val keystorePath = System.getenv("XTTS_KEYSTORE_PATH")
-
-            if (!keystorePath.isNullOrBlank()) {
-                storeFile = file(keystorePath)
-                storePassword = System.getenv("XTTS_KEYSTORE_PASSWORD")
-                keyAlias = System.getenv("XTTS_KEY_ALIAS") ?: "xtts"
-                keyPassword = System.getenv("XTTS_KEY_PASSWORD")
-            }
-        }
+   signingConfigs {
+    create("release") {
+        storeFile = file(
+            System.getenv("XTTS_KEYSTORE_PATH")
+                ?: "${System.getProperty("java.io.tmpdir")}/xtts-release.jks"
+        )
+        storePassword = System.getenv("XTTS_KEYSTORE_PASSWORD") ?: ""
+        keyAlias = System.getenv("XTTS_KEY_ALIAS") ?: "xtts"
+        keyPassword = System.getenv("XTTS_KEY_PASSWORD") ?: ""
     }
-
+}
     buildTypes {
         release {
             isMinifyEnabled = false
