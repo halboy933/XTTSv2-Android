@@ -37,11 +37,11 @@ class MainActivity : AppCompatActivity() {
   }
 
   content.addView(TextView(this).apply {
-   text="XTTS-v2 Android V2 • Stage 3D"
+   text="XTTS-v2 Android V2 • Stage 3E"
    textSize=24f
   })
   content.addView(TextView(this).apply {
-   text="Russian XTTS-v2 • local voice + WAV export/share"
+   text="Russian XTTS-v2 • Quality Lab + WAV export/share"
   })
 
   val import=Button(this).apply { text="Import voice WAV (3–6 sec)" }
@@ -54,6 +54,20 @@ class MainActivity : AppCompatActivity() {
     InputType.TYPE_TEXT_FLAG_MULTI_LINE or
     InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
    setHorizontallyScrolling(false)
+  }
+  val qualityLabel=TextView(this).apply {
+   text="Режим качества"
+  }
+  val qualityMode=Spinner(this).apply {
+   adapter=ArrayAdapter(
+    this@MainActivity,
+    android.R.layout.simple_spinner_dropdown_item,
+    listOf(
+     "Оригинал 3C • 0.75 / 50 / 0.85",
+     "Чётче 3E • 0.65 / 30 / 0.90"
+    )
+   )
+   setSelection(1)
   }
   val download=Button(this).apply { text="Import model ZIP / verify ONNX" }
   val conditioning=Button(this).apply { text="Compute voice conditioning (Stage 3A)" }
@@ -79,6 +93,8 @@ class MainActivity : AppCompatActivity() {
 
   content.addView(import)
   content.addView(inputText)
+  content.addView(qualityLabel)
+  content.addView(qualityMode)
   content.addView(download)
   content.addView(conditioning)
   content.addView(gptTest)
@@ -104,7 +120,7 @@ class MainActivity : AppCompatActivity() {
      append("\nONNX models: $modelCount found\n")
      append("Conditioning cache: ${if(cache.exists()) "found" else "missing"}\n")
      append("Generated WAV: ${if(File(filesDir,"xtts_generated.wav").exists()) "found" else "missing"}\n")
-     append("Ready for Stage 3A / 3B / 3C / 3D.")
+     append("Ready for Stage 3A / 3B / 3C / 3D / 3E.")
     }
    }
    .onFailure { status.text="ONNX Runtime error: ${it.message}" }
@@ -212,6 +228,7 @@ class MainActivity : AppCompatActivity() {
    conditioning.isEnabled=false
    gptTest.isEnabled=false
    synthesize.isEnabled=false
+   qualityMode.isEnabled=false
    play.isEnabled=false
    saveWav.isEnabled=false
    shareWav.isEnabled=false
@@ -221,7 +238,21 @@ class MainActivity : AppCompatActivity() {
 
    Thread {
     val result=runCatching {
-     XttsSynthesisStage3C(filesDir).run(typed) { message ->
+     val preset=qualityMode.selectedItemPosition
+     val sampling=when(preset) {
+      1 -> XttsSynthesisStage3C.Sampling(
+       temperature=0.65f,
+       topK=30,
+       topP=0.90f,
+       repetitionPenalty=10.0f
+      )
+      else -> XttsSynthesisStage3C.Sampling()
+     }
+     XttsSynthesisStage3C(filesDir).run(
+      typed,
+      sampling,
+      "xtts_generated.wav"
+     ) { message ->
       runOnUiThread { status.text=message }
      }
     }
@@ -229,6 +260,7 @@ class MainActivity : AppCompatActivity() {
      conditioning.isEnabled=true
      gptTest.isEnabled=true
      synthesize.isEnabled=true
+     qualityMode.isEnabled=true
      result.onSuccess {
       lastReport=it
       copyReport.isEnabled=true

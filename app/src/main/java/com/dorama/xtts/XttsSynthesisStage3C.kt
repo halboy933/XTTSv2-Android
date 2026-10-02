@@ -32,7 +32,16 @@ class XttsSynthesisStage3C(private val filesDir: File) {
   val repetitionPenalty:Float=10.0f
  )
 
- fun run(text:String,progress:(String)->Unit):String {
+ fun run(text:String,progress:(String)->Unit):String =
+  run(text,Sampling(),"xtts_generated.wav",progress)
+
+ fun run(
+  text:String,
+  sampling:Sampling,
+  outputName:String="xtts_generated.wav",
+  progress:(String)->Unit
+ ):String {
+  require(outputName.matches(Regex("[A-Za-z0-9._-]+"))) { "Invalid output file name" }
   val totalStart=System.nanoTime()
   val condFile=File(cacheRoot,"cond_latents.f32")
   val speakerFile=File(cacheRoot,"speaker_embedding.f32")
@@ -107,7 +116,6 @@ class XttsSynthesisStage3C(private val filesDir: File) {
   val gpt=env.createSession(findRequired("gpt_model_int8.onnx").absolutePath,opts)
   val gptLoadMs=elapsedMs(loadStart)
 
-  val sampling=Sampling()
   val generated=ArrayList<Int>()
   val latents=ArrayList<FloatArray>()
   val used=BooleanArray(1026)
@@ -229,7 +237,7 @@ class XttsSynthesisStage3C(private val filesDir: File) {
   val vocoderMs=elapsedMs(vocoderStart)
   require(audio.isNotEmpty() && audio.all { it.isFinite() }) { "Vocoder returned invalid audio" }
 
-  val outFile=File(filesDir,"xtts_generated.wav")
+  val outFile=File(filesDir,outputName)
   writeWav16(outFile,audio,24000)
   val peak=audio.maxOf { abs(it) }
   val seconds=audio.size/24000.0
@@ -242,6 +250,7 @@ class XttsSynthesisStage3C(private val filesDir: File) {
    append("Prefix: [1, $prefixLen, 1024] (${prefixMs} ms)\n")
    append("Embeddings load: ${embMs} ms\n")
    append("GPT INT8 load: ${gptLoadMs} ms\n")
+   append("Sampling: temp=${sampling.temperature}, topK=${sampling.topK}, topP=${sampling.topP}, rep=${sampling.repetitionPenalty}\n")
    append("Generated audio tokens: ${generated.size}\n")
    append("Stop token reached: $stoppedByToken\n")
    append("GPT inference total: ${gptRunMs} ms\n")
