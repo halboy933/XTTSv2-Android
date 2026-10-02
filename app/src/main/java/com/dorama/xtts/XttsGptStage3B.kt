@@ -282,7 +282,7 @@ class XttsGptStage3B(private val filesDir: File) {
  private fun shape(s:LongArray)="[${s.joinToString(", ")}]"
 }
 
-private class XttsBpeTokenizer(file:File) {
+internal class XttsBpeTokenizer(file:File) {
  private val root=JSONObject(file.readText())
  private val model=root.getJSONObject("model")
  private val vocab=HashMap<String,Int>()

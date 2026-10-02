@@ -5,6 +5,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.media.MediaPlayer
 import android.os.Bundle
 import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
@@ -17,6 +18,7 @@ class MainActivity : AppCompatActivity() {
  private lateinit var status: TextView
  private var refPath: String? = null
  private var lastReport: String = ""
+ private var player: MediaPlayer? = null
  private val modelDir by lazy { File(filesDir, "xtts_models") }
 
  override fun onCreate(savedInstanceState: Bundle?) {
@@ -32,11 +34,11 @@ class MainActivity : AppCompatActivity() {
   }
 
   content.addView(TextView(this).apply {
-   text="XTTS-v2 Android V2 • Stage 3B"
+   text="XTTS-v2 Android V2 • Stage 3C"
    textSize=24f
   })
   content.addView(TextView(this).apply {
-   text="Russian BPE → GPT INT8 prefill + KV-cache decode"
+   text="Russian XTTS-v2 • full local synthesis to WAV"
   })
 
   val import=Button(this).apply { text="Import voice WAV (3–6 sec)" }
@@ -47,6 +49,11 @@ class MainActivity : AppCompatActivity() {
   val download=Button(this).apply { text="Import model ZIP / verify ONNX" }
   val conditioning=Button(this).apply { text="Compute voice conditioning (Stage 3A)" }
   val gptTest=Button(this).apply { text="Test Russian GPT (Stage 3B)" }
+  val synthesize=Button(this).apply { text="Generate voice (Stage 3C)" }
+  val play=Button(this).apply {
+   text="Play generated WAV"
+   isEnabled=File(filesDir,"xtts_generated.wav").exists()
+  }
   val copyReport=Button(this).apply {
    text="Copy report"
    isEnabled=false
@@ -58,6 +65,8 @@ class MainActivity : AppCompatActivity() {
   content.addView(download)
   content.addView(conditioning)
   content.addView(gptTest)
+  content.addView(synthesize)
+  content.addView(play)
   content.addView(copyReport)
   content.addView(status)
   setContentView(scroll)
@@ -75,7 +84,8 @@ class MainActivity : AppCompatActivity() {
      append(if(existingRef.exists()) "found (${existingRef.length()/1024} KB)" else "not imported")
      append("\nONNX models: $modelCount found\n")
      append("Conditioning cache: ${if(cache.exists()) "found" else "missing"}\n")
-     append("Ready for Stage 3A / 3B.")
+     append("Generated WAV: ${if(File(filesDir,"xtts_generated.wav").exists()) "found" else "missing"}\n")
+     append("Ready for Stage 3A / 3B / 3C.")
     }
    }
    .onFailure { status.text="ONNX Runtime error: ${it.message}" }
@@ -110,6 +120,7 @@ class MainActivity : AppCompatActivity() {
    }
    conditioning.isEnabled=false
    gptTest.isEnabled=false
+   synthesize.isEnabled=false
    copyReport.isEnabled=false
    lastReport=""
    status.text="Stage 3A: starting…"
@@ -123,6 +134,7 @@ class MainActivity : AppCompatActivity() {
     runOnUiThread {
      conditioning.isEnabled=true
      gptTest.isEnabled=true
+     synthesize.isEnabled=true
      result.onSuccess {
       lastReport=it
       copyReport.isEnabled=true
@@ -144,6 +156,7 @@ class MainActivity : AppCompatActivity() {
    }
    conditioning.isEnabled=false
    gptTest.isEnabled=false
+   synthesize.isEnabled=false
    copyReport.isEnabled=false
    lastReport=""
    status.text="Stage 3B: starting…"
@@ -157,6 +170,7 @@ class MainActivity : AppCompatActivity() {
     runOnUiThread {
      conditioning.isEnabled=true
      gptTest.isEnabled=true
+     synthesize.isEnabled=true
      result.onSuccess {
       lastReport=it
       copyReport.isEnabled=true
@@ -169,6 +183,73 @@ class MainActivity : AppCompatActivity() {
     }
    }.start()
   }
+
+  synthesize.setOnClickListener {
+   val typed=inputText.text?.toString().orEmpty()
+   if(typed.isBlank()) {
+    status.text="Stage 3C: enter Russian text first."
+    return@setOnClickListener
+   }
+   conditioning.isEnabled=false
+   gptTest.isEnabled=false
+   synthesize.isEnabled=false
+   play.isEnabled=false
+   copyReport.isEnabled=false
+   lastReport=""
+   status.text="Stage 3C: starting full synthesis…"
+
+   Thread {
+    val result=runCatching {
+     XttsSynthesisStage3C(filesDir).run(typed) { message ->
+      runOnUiThread { status.text=message }
+     }
+    }
+    runOnUiThread {
+     conditioning.isEnabled=true
+     gptTest.isEnabled=true
+     synthesize.isEnabled=true
+     result.onSuccess {
+      lastReport=it
+      copyReport.isEnabled=true
+      play.isEnabled=File(filesDir,"xtts_generated.wav").exists()
+      status.text=it
+     }.onFailure {
+      lastReport=""
+      copyReport.isEnabled=false
+      play.isEnabled=File(filesDir,"xtts_generated.wav").exists()
+      status.text="Stage 3C failed: ${it.javaClass.simpleName}: ${it.message}"
+     }
+    }
+   }.start()
+  }
+
+  play.setOnClickListener {
+   val wav=File(filesDir,"xtts_generated.wav")
+   if(!wav.exists()) {
+    status.text="Generated WAV not found. Run Stage 3C first."
+    return@setOnClickListener
+   }
+   runCatching {
+    player?.release()
+    player=MediaPlayer().apply {
+     setDataSource(wav.absolutePath)
+     prepare()
+     setOnCompletionListener {
+      it.release()
+      if(player===it) player=null
+     }
+     start()
+    }
+   }.onFailure {
+    status.text="Playback failed: ${it.message}"
+   }
+  }
+ }
+
+ override fun onDestroy() {
+  player?.release()
+  player=null
+  super.onDestroy()
  }
 
  override fun onActivityResult(requestCode:Int,resultCode:Int,data:Intent?) {
