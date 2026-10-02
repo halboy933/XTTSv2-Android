@@ -7,8 +7,11 @@ import android.content.Context
 import android.content.Intent
 import android.media.MediaPlayer
 import android.os.Bundle
+import android.text.InputType
+import android.view.Gravity
 import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.FileProvider
 import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
 import java.io.File
@@ -34,17 +37,23 @@ class MainActivity : AppCompatActivity() {
   }
 
   content.addView(TextView(this).apply {
-   text="XTTS-v2 Android V2 • Stage 3C"
+   text="XTTS-v2 Android V2 • Stage 3D"
    textSize=24f
   })
   content.addView(TextView(this).apply {
-   text="Russian XTTS-v2 • full local synthesis to WAV"
+   text="Russian XTTS-v2 • local voice + WAV export/share"
   })
 
   val import=Button(this).apply { text="Import voice WAV (3–6 sec)" }
   val inputText=EditText(this).apply {
    hint="Русский текст"
    setText("Сегодня я хочу рассказать вам об одной удивительной истории.")
+   minLines=4
+   gravity=Gravity.TOP or Gravity.START
+   inputType=InputType.TYPE_CLASS_TEXT or
+    InputType.TYPE_TEXT_FLAG_MULTI_LINE or
+    InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
+   setHorizontallyScrolling(false)
   }
   val download=Button(this).apply { text="Import model ZIP / verify ONNX" }
   val conditioning=Button(this).apply { text="Compute voice conditioning (Stage 3A)" }
@@ -52,6 +61,14 @@ class MainActivity : AppCompatActivity() {
   val synthesize=Button(this).apply { text="Generate voice (Stage 3C)" }
   val play=Button(this).apply {
    text="Play generated WAV"
+   isEnabled=File(filesDir,"xtts_generated.wav").exists()
+  }
+  val saveWav=Button(this).apply {
+   text="Save WAV"
+   isEnabled=File(filesDir,"xtts_generated.wav").exists()
+  }
+  val shareWav=Button(this).apply {
+   text="Share WAV"
    isEnabled=File(filesDir,"xtts_generated.wav").exists()
   }
   val copyReport=Button(this).apply {
@@ -67,6 +84,8 @@ class MainActivity : AppCompatActivity() {
   content.addView(gptTest)
   content.addView(synthesize)
   content.addView(play)
+  content.addView(saveWav)
+  content.addView(shareWav)
   content.addView(copyReport)
   content.addView(status)
   setContentView(scroll)
@@ -85,7 +104,7 @@ class MainActivity : AppCompatActivity() {
      append("\nONNX models: $modelCount found\n")
      append("Conditioning cache: ${if(cache.exists()) "found" else "missing"}\n")
      append("Generated WAV: ${if(File(filesDir,"xtts_generated.wav").exists()) "found" else "missing"}\n")
-     append("Ready for Stage 3A / 3B / 3C.")
+     append("Ready for Stage 3A / 3B / 3C / 3D.")
     }
    }
    .onFailure { status.text="ONNX Runtime error: ${it.message}" }
@@ -194,6 +213,8 @@ class MainActivity : AppCompatActivity() {
    gptTest.isEnabled=false
    synthesize.isEnabled=false
    play.isEnabled=false
+   saveWav.isEnabled=false
+   shareWav.isEnabled=false
    copyReport.isEnabled=false
    lastReport=""
    status.text="Stage 3C: starting full synthesis…"
@@ -211,12 +232,18 @@ class MainActivity : AppCompatActivity() {
      result.onSuccess {
       lastReport=it
       copyReport.isEnabled=true
-      play.isEnabled=File(filesDir,"xtts_generated.wav").exists()
+      val generated=File(filesDir,"xtts_generated.wav").exists()
+      play.isEnabled=generated
+      saveWav.isEnabled=generated
+      shareWav.isEnabled=generated
       status.text=it
      }.onFailure {
       lastReport=""
       copyReport.isEnabled=false
-      play.isEnabled=File(filesDir,"xtts_generated.wav").exists()
+      val generated=File(filesDir,"xtts_generated.wav").exists()
+      play.isEnabled=generated
+      saveWav.isEnabled=generated
+      shareWav.isEnabled=generated
       status.text="Stage 3C failed: ${it.javaClass.simpleName}: ${it.message}"
      }
     }
@@ -244,6 +271,43 @@ class MainActivity : AppCompatActivity() {
     status.text="Playback failed: ${it.message}"
    }
   }
+
+  saveWav.setOnClickListener {
+   val wav=File(filesDir,"xtts_generated.wav")
+   if(!wav.exists()) {
+    status.text="Generated WAV not found. Run Stage 3C first."
+    return@setOnClickListener
+   }
+   startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+    addCategory(Intent.CATEGORY_OPENABLE)
+    type="audio/wav"
+    putExtra(Intent.EXTRA_TITLE,"xtts_generated.wav")
+   },9)
+  }
+
+  shareWav.setOnClickListener {
+   val wav=File(filesDir,"xtts_generated.wav")
+   if(!wav.exists()) {
+    status.text="Generated WAV not found. Run Stage 3C first."
+    return@setOnClickListener
+   }
+   runCatching {
+    val uri=FileProvider.getUriForFile(
+     this,
+     "$packageName.fileprovider",
+     wav
+    )
+    val share=Intent(Intent.ACTION_SEND).apply {
+     type="audio/wav"
+     putExtra(Intent.EXTRA_STREAM,uri)
+     clipData=ClipData.newRawUri("XTTS WAV",uri)
+     addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+    startActivity(Intent.createChooser(share,"Поделиться WAV"))
+   }.onFailure {
+    status.text="Share failed: ${it.message}"
+   }
+  }
  }
 
  override fun onDestroy() {
@@ -256,6 +320,24 @@ class MainActivity : AppCompatActivity() {
   super.onActivityResult(requestCode,resultCode,data)
   if(resultCode!=Activity.RESULT_OK) return
   val u=data?.data?:return
+
+  if(requestCode==9) {
+   val wav=File(filesDir,"xtts_generated.wav")
+   if(!wav.exists()) {
+    status.text="Generated WAV not found."
+    return
+   }
+   runCatching {
+    contentResolver.openOutputStream(u,"w")!!.use { out ->
+     wav.inputStream().use { input -> input.copyTo(out) }
+    }
+   }.onSuccess {
+    status.text="WAV saved successfully."
+   }.onFailure {
+    status.text="WAV save failed: ${it.message}"
+   }
+   return
+  }
 
   if(requestCode==7) {
    val f=File(filesDir,"reference.wav")
