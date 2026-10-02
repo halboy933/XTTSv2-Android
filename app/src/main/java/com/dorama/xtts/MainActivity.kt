@@ -236,9 +236,10 @@ class MainActivity : AppCompatActivity() {
    lastReport=""
    status.text="Stage 3C: starting full synthesis…"
 
+   val preset=qualityMode.selectedItemPosition
+
    Thread {
     val result=runCatching {
-     val preset=qualityMode.selectedItemPosition
      val sampling=when(preset) {
       1 -> XttsSynthesisStage3C.Sampling(
        temperature=0.65f,
