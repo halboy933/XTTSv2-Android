@@ -32,32 +32,32 @@ class MainActivity : AppCompatActivity() {
   }
 
   content.addView(TextView(this).apply {
-   text="XTTS-v2 Android V2 • Stage 3A"
+   text="XTTS-v2 Android V2 • Stage 3B"
    textSize=24f
   })
   content.addView(TextView(this).apply {
-   text="Reference WAV → mel → conditioning + speaker embedding"
+   text="Russian BPE → GPT INT8 prefill + KV-cache decode"
   })
 
   val import=Button(this).apply { text="Import voice WAV (3–6 sec)" }
   val inputText=EditText(this).apply {
-   hint="Русский текст (будет использоваться на Stage 3B)"
+   hint="Русский текст"
    setText("Сегодня я хочу рассказать вам об одной удивительной истории.")
   }
   val download=Button(this).apply { text="Import model ZIP / verify ONNX" }
-  val generate=Button(this).apply { text="Compute voice conditioning (Stage 3A)" }
+  val conditioning=Button(this).apply { text="Compute voice conditioning (Stage 3A)" }
+  val gptTest=Button(this).apply { text="Test Russian GPT (Stage 3B)" }
   val copyReport=Button(this).apply {
-   text="Copy Stage 3A report"
+   text="Copy report"
    isEnabled=false
   }
-  status=TextView(this).apply {
-   setTextIsSelectable(true)
-  }
+  status=TextView(this).apply { setTextIsSelectable(true) }
 
   content.addView(import)
   content.addView(inputText)
   content.addView(download)
-  content.addView(generate)
+  content.addView(conditioning)
+  content.addView(gptTest)
   content.addView(copyReport)
   content.addView(status)
   setContentView(scroll)
@@ -68,12 +68,14 @@ class MainActivity : AppCompatActivity() {
   runCatching { OrtEnvironment.getEnvironment() }
    .onSuccess {
     val modelCount=modelDir.walkTopDown().count { it.isFile && it.extension.equals("onnx",true) }
+    val cache=File(filesDir,"conditioning_cache/cond_latents.f32")
     status.text=buildString {
      append("Status: ONNX Runtime OK\n")
      append("Reference: ")
      append(if(existingRef.exists()) "found (${existingRef.length()/1024} KB)" else "not imported")
      append("\nONNX models: $modelCount found\n")
-     append("Ready for Stage 3A.")
+     append("Conditioning cache: ${if(cache.exists()) "found" else "missing"}\n")
+     append("Ready for Stage 3A / 3B.")
     }
    }
    .onFailure { status.text="ONNX Runtime error: ${it.message}" }
@@ -81,8 +83,8 @@ class MainActivity : AppCompatActivity() {
   copyReport.setOnClickListener {
    if(lastReport.isNotBlank()) {
     val clipboard=getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-    clipboard.setPrimaryClip(ClipData.newPlainText("XTTS Stage 3A report",lastReport))
-    Toast.makeText(this,"Stage 3A report copied",Toast.LENGTH_SHORT).show()
+    clipboard.setPrimaryClip(ClipData.newPlainText("XTTS report",lastReport))
+    Toast.makeText(this,"Report copied",Toast.LENGTH_SHORT).show()
    }
   }
 
@@ -100,14 +102,14 @@ class MainActivity : AppCompatActivity() {
    },8)
   }
 
-  generate.setOnClickListener {
+  conditioning.setOnClickListener {
    val ref=File(filesDir,"reference.wav")
    if(!ref.exists()) {
     status.text="Stage 3A: import reference WAV first."
     return@setOnClickListener
    }
-
-   generate.isEnabled=false
+   conditioning.isEnabled=false
+   gptTest.isEnabled=false
    copyReport.isEnabled=false
    lastReport=""
    status.text="Stage 3A: starting…"
@@ -119,7 +121,8 @@ class MainActivity : AppCompatActivity() {
      }
     }
     runOnUiThread {
-     generate.isEnabled=true
+     conditioning.isEnabled=true
+     gptTest.isEnabled=true
      result.onSuccess {
       lastReport=it
       copyReport.isEnabled=true
@@ -128,6 +131,40 @@ class MainActivity : AppCompatActivity() {
       lastReport=""
       copyReport.isEnabled=false
       status.text="Stage 3A failed: ${it.javaClass.simpleName}: ${it.message}"
+     }
+    }
+   }.start()
+  }
+
+  gptTest.setOnClickListener {
+   val typed=inputText.text?.toString().orEmpty()
+   if(typed.isBlank()) {
+    status.text="Stage 3B: enter Russian text first."
+    return@setOnClickListener
+   }
+   conditioning.isEnabled=false
+   gptTest.isEnabled=false
+   copyReport.isEnabled=false
+   lastReport=""
+   status.text="Stage 3B: starting…"
+
+   Thread {
+    val result=runCatching {
+     XttsGptStage3B(filesDir).run(typed) { message ->
+      runOnUiThread { status.text=message }
+     }
+    }
+    runOnUiThread {
+     conditioning.isEnabled=true
+     gptTest.isEnabled=true
+     result.onSuccess {
+      lastReport=it
+      copyReport.isEnabled=true
+      status.text=it
+     }.onFailure {
+      lastReport=""
+      copyReport.isEnabled=false
+      status.text="Stage 3B failed: ${it.javaClass.simpleName}: ${it.message}"
      }
     }
    }.start()
@@ -141,22 +178,17 @@ class MainActivity : AppCompatActivity() {
 
   if(requestCode==7) {
    val f=File(filesDir,"reference.wav")
-   contentResolver.openInputStream(u)!!.use { a ->
-    f.outputStream().use { b -> a.copyTo(b) }
-   }
+   contentResolver.openInputStream(u)!!.use { a -> f.outputStream().use { b -> a.copyTo(b) } }
    refPath=f.absolutePath
    File(filesDir,"conditioning_cache").deleteRecursively()
    lastReport=""
-   status.text="Reference imported: ${f.length()/1024} KB\nConditioning cache cleared."
+   status.text="Reference imported: ${f.length()/1024} KB\nConditioning cache cleared. Run Stage 3A."
   }
 
   if(requestCode==8) {
    status.text="Importing model archive…"
    Thread {
-    val result=runCatching {
-     importModelZip(u)
-     validateModels()
-    }
+    val result=runCatching { importModelZip(u); validateModels() }
     runOnUiThread {
      status.text=result.fold(
       { "ONNX check:\n$it" },
@@ -189,21 +221,11 @@ class MainActivity : AppCompatActivity() {
  }
 
  private fun validateModels():String {
-  val models=modelDir.walkTopDown()
-   .filter { it.isFile && it.extension.equals("onnx",true) }
-   .toList()
+  val models=modelDir.walkTopDown().filter { it.isFile && it.extension.equals("onnx",true) }.toList()
   require(models.isNotEmpty()) { "No .onnx files in imported ZIP" }
-
-  val required=setOf(
-   "conditioning_encoder.onnx",
-   "speaker_encoder.onnx",
-   "gpt_model_int8.onnx",
-   "hifigan_vocoder.onnx"
-  )
-  val present=models.map { it.name }.toSet()
-  val missing=required-present
+  val required=setOf("conditioning_encoder.onnx","speaker_encoder.onnx","gpt_model_int8.onnx","hifigan_vocoder.onnx")
+  val missing=required-models.map { it.name }.toSet()
   require(missing.isEmpty()) { "Missing models: ${missing.joinToString()}" }
-
   val env=OrtEnvironment.getEnvironment()
   val opts=OrtSession.SessionOptions()
   try {
@@ -212,8 +234,6 @@ class MainActivity : AppCompatActivity() {
      "${model.name}: ${session.inputNames.size} inputs / ${session.outputNames.size} outputs"
     }
    }
-  } finally {
-   opts.close()
-  }
+  } finally { opts.close() }
  }
 }
