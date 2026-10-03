@@ -50,7 +50,34 @@ jobs:
           XTTS_KEY_PASSWORD: ${{ secrets.XTTS_KEY_PASSWORD }}
         run: gradle :app:assembleRelease
 
+      - name: Verify release APK package and signature
+        run: |
+          APK="app/build/outputs/apk/release/app-release.apk"
+          BT="$ANDROID_HOME/build-tools/36.0.0"
+
+          test -s "$APK"
+
+          echo "=== APK file ==="
+          ls -lh "$APK"
+          file "$APK"
+          sha256sum "$APK"
+
+          echo "=== ZIP alignment ==="
+          "$BT/zipalign" -c -v 4 "$APK"
+
+          echo "=== APK signature ==="
+          "$BT/apksigner" verify --verbose --print-certs "$APK"
+
+          echo "=== Package metadata ==="
+          "$BT/aapt" dump badging "$APK" | head -n 20
+
+      - name: Copy verified APK with explicit name
+        run: |
+          cp app/build/outputs/apk/release/app-release.apk              app/build/outputs/apk/release/XTTSv2-Android-verified.apk
+
+
       - uses: actions/upload-artifact@v4
         with:
-          name: XTTSv2-Android
-          path: app/build/outputs/apk/release/app-release.apk
+          name: XTTSv2-Android-VERIFIED
+          path: app/build/outputs/apk/release/XTTSv2-Android-verified.apk
+          if-no-files-found: error
