@@ -11,8 +11,8 @@ android {
         applicationId = "com.dorama.xtts"
         minSdk = 31
         targetSdk = 36
-        versionCode = 8
-        versionName = "0.3.4-stage3e"
+        versionCode = 9
+        versionName = "0.3.5-stage3f"
     }
 
    signingConfigs {

@@ -94,7 +94,7 @@ s = s.replace(
 )
 
 old = '''   )
-   setSelection(0)
+   setSelection(1)
   }
   val download=Button(this).apply { text="Import model ZIP / verify ONNX" }'''
 new = '''   )

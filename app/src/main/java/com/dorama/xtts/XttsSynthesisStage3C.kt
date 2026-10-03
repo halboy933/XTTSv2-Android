@@ -29,7 +29,8 @@ class XttsSynthesisStage3C(private val filesDir: File) {
   val temperature:Float=0.75f,
   val topK:Int=50,
   val topP:Float=0.85f,
-  val repetitionPenalty:Float=10.0f
+  val repetitionPenalty:Float=10.0f,
+  val seed:Int?=null
  )
 
  fun run(text:String,progress:(String)->Unit):String =
@@ -120,6 +121,7 @@ class XttsSynthesisStage3C(private val filesDir: File) {
   val latents=ArrayList<FloatArray>()
   val used=BooleanArray(1026)
   used[1]=true
+  val rng=if(sampling.seed!=null) Random(sampling.seed) else Random.Default
   val maxTokens=min(605,melPos.shape[0]-1)
 
   var current:OrtSession.Result?=null
@@ -150,7 +152,7 @@ class XttsSynthesisStage3C(private val filesDir: File) {
     val hidden=result[1] as OnnxTensor
 
     val scores=lastRow(logits,1026)
-    val token=sampleToken(scores,used,sampling)
+    val token=sampleToken(scores,used,sampling,rng)
 
     if(token==stopAudio) {
      stoppedByToken=true
@@ -251,6 +253,7 @@ class XttsSynthesisStage3C(private val filesDir: File) {
    append("Embeddings load: ${embMs} ms\n")
    append("GPT INT8 load: ${gptLoadMs} ms\n")
    append("Sampling: temp=${sampling.temperature}, topK=${sampling.topK}, topP=${sampling.topP}, rep=${sampling.repetitionPenalty}\n")
+   append("Seed: ${sampling.seed?.toString() ?: "random"}\n")
    append("Generated audio tokens: ${generated.size}\n")
    append("Stop token reached: $stoppedByToken\n")
    append("GPT inference total: ${gptRunMs} ms\n")
@@ -264,7 +267,7 @@ class XttsSynthesisStage3C(private val filesDir: File) {
   }
  }
 
- private fun sampleToken(raw:FloatArray,used:BooleanArray,cfg:Sampling):Int {
+ private fun sampleToken(raw:FloatArray,used:BooleanArray,cfg:Sampling,rng:Random):Int {
   val scores=raw.copyOf()
   for(i in scores.indices) {
    if(i<used.size && used[i]) {
@@ -310,7 +313,7 @@ class XttsSynthesisStage3C(private val filesDir: File) {
    total+=p
   }
   require(total>0.0 && total.isFinite()) { "Invalid GPT probability distribution" }
-  var r=Random.nextDouble()*total
+  var r=rng.nextDouble()*total
   for(i in probs.indices) {
    r-=probs[i]
    if(r<=0.0) return i
