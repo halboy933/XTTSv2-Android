@@ -59,7 +59,7 @@ class GenerationProgressDialog(
    setPadding(0,20,0,20)
   }
   resultLabel.apply {
-   text="Результаты"
+   text="Топ-3 по сходству"
    textSize=18f
    visibility=View.GONE
   }
@@ -139,7 +139,7 @@ class GenerationProgressDialog(
   title.text="✓ Генерация завершена"
   progress.visibility=View.GONE
   message.text=buildString {
-   append("Готово. Выберите вариант и нажмите «Прослушать».\\n")
+   append("Готово. Ниже лучшие варианты по speaker similarity.\n")
    if(items.isNotEmpty()) {
     val best=items.first()
     append("Лучший по speaker similarity: seed ${best.seed} • ")

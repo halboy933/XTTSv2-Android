@@ -40,11 +40,11 @@ class MainActivity : AppCompatActivity() {
   }
 
   content.addView(TextView(this).apply {
-   text="XTTS-v2 Android V2 • Stage 3G"
+   text="XTTS-v2 Android V2 • Stage 3H"
    textSize=24f
   })
   content.addView(TextView(this).apply {
-   text="Russian XTTS-v2 • voice similarity + generation window"
+   text="Russian XTTS-v2 • 8-variant voice search + Top 3"
   })
 
   val import=Button(this).apply { text="Import voice WAV (3–6 sec)" }
@@ -99,8 +99,8 @@ class MainActivity : AppCompatActivity() {
   val download=Button(this).apply { text="Import model ZIP / verify ONNX" }
   val conditioning=Button(this).apply { text="Compute voice conditioning (Stage 3A)" }
   val gptTest=Button(this).apply { text="Test Russian GPT (Stage 3B)" }
-  val synthesize=Button(this).apply { text="Generate 1 variant (Stage 3G)" }
-  val synthesize3=Button(this).apply { text="Generate 3 variants (seed, seed+1, seed+2)" }
+  val synthesize=Button(this).apply { text="Generate 1 variant (Stage 3H)" }
+  val synthesize3=Button(this).apply { text="Find best voice • 8 variants → Top 3" }
   val play=Button(this).apply {
    text="Play generated WAV"
    isEnabled=File(filesDir,"xtts_generated.wav").exists()
@@ -153,7 +153,7 @@ class MainActivity : AppCompatActivity() {
      append("\nONNX models: $modelCount found\n")
      append("Conditioning cache: ${if(cache.exists()) "found" else "missing"}\n")
      append("Generated WAV: ${if(File(filesDir,"xtts_generated.wav").exists()) "found" else "missing"}\n")
-     append("Ready for Stage 3A / 3B / 3C / 3D / 3E / 3F / 3G.")
+     append("Ready for Stage 3A / 3B / 3C / 3D / 3E / 3F / 3G / 3H.")
     }
    }
    .onFailure { status.text="ONNX Runtime error: ${it.message}" }
@@ -301,12 +301,12 @@ class MainActivity : AppCompatActivity() {
   synthesize.setOnClickListener {
    val typed=inputText.text?.toString().orEmpty()
    if(typed.isBlank()) {
-    status.text="Stage 3G: enter Russian text first."
+    status.text="Stage 3H: enter Russian text first."
     return@setOnClickListener
    }
    val seed=seedInput.text?.toString()?.trim()?.toIntOrNull()
    if(seed==null) {
-    status.text="Stage 3G: seed must be a whole number."
+    status.text="Stage 3H: seed must be a whole number."
     return@setOnClickListener
    }
    val sampling=selectedSampling(seed)
@@ -316,7 +316,7 @@ class MainActivity : AppCompatActivity() {
 
    setGenerationBusy(true)
    lastReport=""
-   status.text="Stage 3G: generating seed $seed…"
+   status.text="Stage 3H: generating seed $seed…"
 
    Thread {
     val result=runCatching {
@@ -326,8 +326,8 @@ class MainActivity : AppCompatActivity() {
       outputName
      ) { message ->
       runOnUiThread {
-       status.text="Seed $seed\\n$message"
-       generationDialog.update("Seed $seed\\n$message")
+       status.text="Seed $seed\n$message"
+       generationDialog.update("Seed $seed\n$message")
       }
      }
      runOnUiThread { generationDialog.update("Оцениваю сходство голоса…") }
@@ -339,7 +339,7 @@ class MainActivity : AppCompatActivity() {
      result.onSuccess {
       val report=it.first
       val similarity=it.second
-      lastReport=report+"\\nVoice similarity: "+String.format(java.util.Locale.US,"%.4f",similarity)
+      lastReport=report+"\nVoice similarity: "+String.format(java.util.Locale.US,"%.4f",similarity)
       refreshResults(listOf(outputName),outputName)
       copyReport.isEnabled=true
       play.isEnabled=true
@@ -351,7 +351,7 @@ class MainActivity : AppCompatActivity() {
       )
      }.onFailure {
       lastReport=""
-      val error="Stage 3G failed: ${it.javaClass.simpleName}: ${it.message}"
+      val error="Stage 3H failed: ${it.javaClass.simpleName}: ${it.message}"
       status.text=error
       generationDialog.fail(error)
      }
@@ -362,23 +362,24 @@ class MainActivity : AppCompatActivity() {
   synthesize3.setOnClickListener {
    val typed=inputText.text?.toString().orEmpty()
    if(typed.isBlank()) {
-    status.text="Stage 3G: enter Russian text first."
+    status.text="Stage 3H: enter Russian text first."
     return@setOnClickListener
    }
    val baseSeed=seedInput.text?.toString()?.trim()?.toIntOrNull()
-   if(baseSeed==null || baseSeed>Int.MAX_VALUE-2) {
-    status.text="Stage 3G: enter a valid seed (max ${Int.MAX_VALUE-2})."
+   if(baseSeed==null || baseSeed>Int.MAX_VALUE-7) {
+    status.text="Stage 3H: enter a valid seed (max ${Int.MAX_VALUE-7})."
     return@setOnClickListener
    }
+
    val preset=qualityMode.selectedItemPosition
-   val seeds=intArrayOf(baseSeed,baseSeed+1,baseSeed+2)
+   val seeds=IntArray(8) { baseSeed+it }
    val names=seeds.map { "xtts_seed_${it}.wav" }
    val generationDialog=GenerationProgressDialog(this,filesDir)
    generationDialog.show()
 
    setGenerationBusy(true)
    lastReport=""
-   status.text="Stage 3G: generating 3 variants…"
+   status.text="Stage 3H: searching 8 voice variants…"
 
    Thread {
     val reports=ArrayList<String>()
@@ -405,7 +406,7 @@ class MainActivity : AppCompatActivity() {
        names[i]
       ) { message ->
        runOnUiThread {
-        val progressText="Вариант ${i+1}/3 • seed $seed\\n$message"
+        val progressText="Вариант ${i+1}/8 • seed $seed\n$message"
         status.text=progressText
         generationDialog.update(progressText)
        }
@@ -413,7 +414,7 @@ class MainActivity : AppCompatActivity() {
 
       runOnUiThread {
        generationDialog.update(
-        "Вариант ${i+1}/3 • seed $seed\\nОцениваю сходство голоса…"
+        "Вариант ${i+1}/8 • seed $seed\nОцениваю сходство голоса…"
        )
       }
 
@@ -429,9 +430,9 @@ class MainActivity : AppCompatActivity() {
      val pair=result.getOrThrow()
      similarities[i]=pair.second
      reports.add(
-      "VARIANT ${i+1}/3 • seed $seed\\n"+
+      "VARIANT ${i+1}/8 • seed $seed\n"+
        pair.first+
-       "\\nVoice similarity: "+
+       "\nVoice similarity: "+
        String.format(java.util.Locale.US,"%.4f",pair.second)
      )
     }
@@ -440,32 +441,43 @@ class MainActivity : AppCompatActivity() {
      setGenerationBusy(false)
 
      if(failure==null) {
-      lastReport=reports.joinToString("\\n\\n====================\\n\\n")
-      val bestIndex=similarities.indices.maxByOrNull { similarities[it] } ?: 0
+      val rankedIndices=similarities.indices.sortedByDescending { similarities[it] }
+      val bestIndex=rankedIndices.first()
+      val top3=rankedIndices.take(3)
+
+      lastReport=reports.joinToString("\n\n====================\n\n")
       refreshResults(names,names[bestIndex])
+
       copyReport.isEnabled=true
       play.isEnabled=true
       saveWav.isEnabled=true
       shareWav.isEnabled=true
 
       status.text=buildString {
-       append("STAGE 3G SUCCESS — 3 variants + voice similarity\\n\\n")
-       for(i in seeds.indices) {
-        append("${i+1}. seed ${seeds[i]} → ${names[i]} • similarity ")
-        append(String.format(java.util.Locale.US,"%.4f",similarities[i]))
-        append("\\n")
+       append("STAGE 3H SUCCESS — 8 variants ranked by voice similarity\n\n")
+       for((rank,index) in rankedIndices.withIndex()) {
+        append("${rank+1}. seed ${seeds[index]} • similarity ")
+        append(String.format(java.util.Locale.US,"%.4f",similarities[index]))
+        if(rank<3) append("  ★ TOP ${rank+1}")
+        append("\n")
        }
-       append("\\nBest speaker similarity: seed ${seeds[bestIndex]}")
+       append("\nBest speaker similarity: seed ${seeds[bestIndex]}")
+       append("\nTop 3 are shown in the generation window.")
+       append("\nAll 8 WAV files remain available in the main result list.")
       }
 
       generationDialog.complete(
-       seeds.indices.map {
-        GenerationProgressDialog.ResultItem(names[it],seeds[it],similarities[it])
+       top3.map { index ->
+        GenerationProgressDialog.ResultItem(
+         names[index],
+         seeds[index],
+         similarities[index]
+        )
        }
       )
      } else {
-      lastReport=reports.joinToString("\\n\\n")
-      val error="Stage 3G variant generation failed: ${failure?.javaClass?.simpleName}: ${failure?.message}"
+      lastReport=reports.joinToString("\n\n")
+      val error="Stage 3H voice search failed: ${failure?.javaClass?.simpleName}: ${failure?.message}"
       status.text=error
       generationDialog.fail(error)
      }
