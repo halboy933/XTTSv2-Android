@@ -30,6 +30,26 @@ class XttsConditioning(private val filesDir: File) {
  data class MelData(val channels:Int,val frames:Int,val data:FloatArray)
  data class TensorResult(val shape:LongArray,val data:FloatArray)
 
+ fun computeSpeakerEmbedding(wavFile:File):FloatArray {
+  require(wavFile.exists()) { "WAV not found: ${wavFile.name}" }
+  val speakerModel=findRequired("speaker_encoder.onnx")
+  val wav=readWav(wavFile)
+  require(wav.samples.isNotEmpty()) { "WAV is empty" }
+  val audio16=resampleSinc(wav.samples,wav.sampleRate,16000)
+  val mel64=speakerMel(audio16)
+  val speaker=runModel(
+   speakerModel,
+   "mel_spec",
+   mel64.data,
+   longArrayOf(1,mel64.channels.toLong(),mel64.frames.toLong())
+  )
+  require(speaker.shape.contentEquals(longArrayOf(1,512,1))) {
+   "Unexpected speaker_embedding shape: ${shape(speaker.shape)}"
+  }
+  require(speaker.data.all { it.isFinite() }) { "speaker_embedding contains NaN/Inf" }
+  return speaker.data
+ }
+
  fun run(referenceFile:File, progress:(String)->Unit):String {
   require(referenceFile.exists()) { "reference.wav not found" }
   val condModel=findRequired("conditioning_encoder.onnx")
