@@ -40,11 +40,11 @@ class MainActivity : AppCompatActivity() {
   }
 
   content.addView(TextView(this).apply {
-   text="XTTS-v2 Android V2 • Stage 3L"
+   text="XTTS-v2 Android V2 • Stage 3M"
    textSize=24f
   })
   content.addView(TextView(this).apply {
-   text="Russian XTTS-v2 • long text auto-split + merge"
+   text="Russian XTTS-v2 • clean UI • Reference Lab + generation"
   })
 
   val import=Button(this).apply { text="Import voice WAV (3–6 sec)" }
@@ -100,12 +100,13 @@ class MainActivity : AppCompatActivity() {
   val download=Button(this).apply { text="Import model ZIP / verify ONNX" }
   val conditioning=Button(this).apply { text="Compute voice conditioning (Stage 3A)" }
   val gptTest=Button(this).apply { text="Test Russian GPT (Stage 3B)" }
-  val synthesize=Button(this).apply { text="Generate 1 variant (Stage 3H)" }
+  val synthesize=Button(this).apply { text="Сгенерировать короткий текст" }
   val synthesize3=Button(this).apply { text="Find best voice • 8 variants → Top 3" }
   val profileSearch=Button(this).apply { text="Stage 3I • Find best reference profile" }
   val multiReference=Button(this).apply { text="Stage 3J • Combine Profiles 3/4/5" }
   val smoothHybrid=Button(this).apply { text="Stage 3K • Smooth the 4+5 voice" }
-  val longSynthesis=Button(this).apply { text="Stage 3L • Generate long text → one WAV" }
+  val longSynthesis=Button(this).apply { text="Сгенерировать длинный текст → один WAV" }
+  val referenceLab=Button(this).apply { text="Reference Lab • Найти лучшие эталоны голоса" }
   val play=Button(this).apply {
    text="Play generated WAV"
    isEnabled=File(filesDir,"xtts_generated.wav").exists()
@@ -142,10 +143,21 @@ class MainActivity : AppCompatActivity() {
   content.addView(multiReference)
   content.addView(smoothHybrid)
   content.addView(longSynthesis)
+  content.addView(referenceLab)
   content.addView(play)
   content.addView(saveWav)
   content.addView(shareWav)
   content.addView(copyReport)
+  listOf(
+   import,
+   download,
+   conditioning,
+   gptTest,
+   synthesize3,
+   profileSearch,
+   multiReference,
+   smoothHybrid
+  ).forEach { it.visibility=android.view.View.GONE }
   content.addView(status)
   setContentView(scroll)
 
@@ -163,7 +175,7 @@ class MainActivity : AppCompatActivity() {
      append("\nONNX models: $modelCount found\n")
      append("Conditioning cache: ${if(cache.exists()) "found" else "missing"}\n")
      append("Generated WAV: ${if(File(filesDir,"xtts_generated.wav").exists()) "found" else "missing"}\n")
-     append("Ready for Stage 3A / 3B / 3C / 3D / 3E / 3F / 3G / 3H / 3I / 3J / 3K / 3L.")
+     append("Ready: short generation / long generation / Reference Lab.")
     }
    }
    .onFailure { status.text="ONNX Runtime error: ${it.message}" }
@@ -312,6 +324,7 @@ class MainActivity : AppCompatActivity() {
    multiReference.isEnabled=!busy
    smoothHybrid.isEnabled=!busy
    longSynthesis.isEnabled=!busy
+   referenceLab.isEnabled=!busy
    if(busy) {
     play.isEnabled=false
     saveWav.isEnabled=false
@@ -783,6 +796,63 @@ class MainActivity : AppCompatActivity() {
      }.onFailure {
       lastReport=""
       val error="Stage 3L failed: ${it.javaClass.simpleName}: ${it.message}"
+      status.text=error
+      generationDialog.fail(error)
+     }
+    }
+   }.start()
+  }
+
+  referenceLab.setOnClickListener {
+   val longRef=File(filesDir,"reference_long.wav")
+   if(!longRef.exists()) {
+    status.text="Reference Lab: сначала импортируй длинную чистую WAV-запись Shorts."
+    return@setOnClickListener
+   }
+
+   val generationDialog=GenerationProgressDialog(this,filesDir)
+   generationDialog.show()
+   setGenerationBusy(true)
+   lastReport=""
+   status.text="Reference Lab: анализирую реальный голос…"
+
+   Thread {
+    val result=runCatching {
+     XttsReferenceLab(filesDir).run(longRef) { message ->
+      runOnUiThread {
+       status.text=message
+       generationDialog.update(message)
+      }
+     }
+    }
+
+    runOnUiThread {
+     setGenerationBusy(false)
+     result.onSuccess { lab ->
+      lastReport=lab.report
+      val names=lab.top5.map { it.file.name }
+      refreshResults(names,lab.top5.first().file.name)
+      copyReport.isEnabled=true
+      play.isEnabled=true
+      saveWav.isEnabled=true
+      shareWav.isEnabled=true
+      status.text=lab.report
+
+      generationDialog.complete(
+       lab.top5.map { c ->
+        GenerationProgressDialog.ResultItem(
+         fileName=c.file.name,
+         seed=0,
+         similarity=c.centroidSimilarity,
+         displayName=
+          "Ref ${c.index} • ${String.format(java.util.Locale.US,"%.1f",c.startSec)} с"+
+          " • речь ${String.format(java.util.Locale.US,"%.0f",c.speechRatio*100)}%"
+        )
+       }
+      )
+     }.onFailure {
+      lastReport=""
+      val error="Reference Lab failed: ${it.javaClass.simpleName}: ${it.message}"
       status.text=error
       generationDialog.fail(error)
      }

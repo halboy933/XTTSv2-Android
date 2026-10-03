@@ -61,7 +61,7 @@ class GenerationProgressDialog(
    setPadding(0,20,0,20)
   }
   resultLabel.apply {
-   text="Топ-3 по сходству"
+   text="Лучшие варианты"
    textSize=18f
    visibility=View.GONE
   }
