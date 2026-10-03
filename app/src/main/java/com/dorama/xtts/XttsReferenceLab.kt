@@ -40,6 +40,12 @@ class XttsReferenceLab(private val filesDir:File) {
  fun run(longReference:File,progress:(String)->Unit):Result {
   require(longReference.exists()) { "reference_long.wav is missing." }
 
+  // Playback/Save/Share resolve candidate names directly under filesDir.
+  // Remove stale root-level copies before a new Reference Lab run.
+  filesDir.listFiles()
+   ?.filter { it.isFile && it.name.matches(Regex("xtts_refcand_\\d{2}\\.wav")) }
+   ?.forEach { runCatching { it.delete() } }
+
   progress("Stage 3M 1/5: читаю длинную запись…")
   val wav=readWav(longReference)
   val totalSec=wav.samples.size.toDouble()/wav.sampleRate
@@ -117,7 +123,15 @@ class XttsReferenceLab(private val filesDir:File) {
   )
   val top5=ranked.take(5)
 
-  progress("Stage 3M 5/5: готово — текущий голос не изменён.")
+  // Analysis candidates live in reference_lab_candidates/.
+  // UI playback/save/share look in filesDir, so keep playable Top-5 copies there.
+  val playableTop5=top5.map { candidate ->
+   val playable=File(filesDir,candidate.file.name)
+   candidate.file.copyTo(playable,overwrite=true)
+   candidate.copy(file=playable)
+  }
+
+  progress("Stage 3M 5/5: готово — Top 5 сохранены для прослушивания.")
 
   val report=buildString {
    append("STAGE 3M SUCCESS — Reference Lab\n\n")
@@ -127,7 +141,7 @@ class XttsReferenceLab(private val filesDir:File) {
    append("Processing: trim edge silence + normalize peak to 0.75\n")
    append("Current voice profile: NOT CHANGED\n\n")
    append("TOP 5 REAL REFERENCE WINDOWS:\n")
-   for((rank,c) in top5.withIndex()) {
+   for((rank,c) in playableTop5.withIndex()) {
     append("${rank+1}. Ref ${c.index}")
     append(" • start ${String.format(Locale.US,"%.1f",c.startSec)} s")
     append(" • dur ${String.format(Locale.US,"%.2f",c.durationSec)} s")
@@ -138,7 +152,7 @@ class XttsReferenceLab(private val filesDir:File) {
    append("\nПрослушай Top 5 и отметь 2–3 фрагмента, которые звучат наиболее естественно.")
   }
 
-  return Result(candidates,top5,report)
+  return Result(candidates,playableTop5,report)
  }
 
  private fun centroid(vectors:List<FloatArray>):FloatArray {
