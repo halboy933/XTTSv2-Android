@@ -40,11 +40,11 @@ class MainActivity : AppCompatActivity() {
   }
 
   content.addView(TextView(this).apply {
-   text="XTTS-v2 Android V2 • Stage 3K"
+   text="XTTS-v2 Android V2 • Stage 3L"
    textSize=24f
   })
   content.addView(TextView(this).apply {
-   text="Russian XTTS-v2 • smooth 4+5 hybrid voice search"
+   text="Russian XTTS-v2 • long text auto-split + merge"
   })
 
   val import=Button(this).apply { text="Import voice WAV (3–6 sec)" }
@@ -105,6 +105,7 @@ class MainActivity : AppCompatActivity() {
   val profileSearch=Button(this).apply { text="Stage 3I • Find best reference profile" }
   val multiReference=Button(this).apply { text="Stage 3J • Combine Profiles 3/4/5" }
   val smoothHybrid=Button(this).apply { text="Stage 3K • Smooth the 4+5 voice" }
+  val longSynthesis=Button(this).apply { text="Stage 3L • Generate long text → one WAV" }
   val play=Button(this).apply {
    text="Play generated WAV"
    isEnabled=File(filesDir,"xtts_generated.wav").exists()
@@ -140,6 +141,7 @@ class MainActivity : AppCompatActivity() {
   content.addView(profileSearch)
   content.addView(multiReference)
   content.addView(smoothHybrid)
+  content.addView(longSynthesis)
   content.addView(play)
   content.addView(saveWav)
   content.addView(shareWav)
@@ -161,7 +163,7 @@ class MainActivity : AppCompatActivity() {
      append("\nONNX models: $modelCount found\n")
      append("Conditioning cache: ${if(cache.exists()) "found" else "missing"}\n")
      append("Generated WAV: ${if(File(filesDir,"xtts_generated.wav").exists()) "found" else "missing"}\n")
-     append("Ready for Stage 3A / 3B / 3C / 3D / 3E / 3F / 3G / 3H / 3I / 3J / 3K.")
+     append("Ready for Stage 3A / 3B / 3C / 3D / 3E / 3F / 3G / 3H / 3I / 3J / 3K / 3L.")
     }
    }
    .onFailure { status.text="ONNX Runtime error: ${it.message}" }
@@ -309,6 +311,7 @@ class MainActivity : AppCompatActivity() {
    profileSearch.isEnabled=!busy
    multiReference.isEnabled=!busy
    smoothHybrid.isEnabled=!busy
+   longSynthesis.isEnabled=!busy
    if(busy) {
     play.isEnabled=false
     saveWav.isEnabled=false
@@ -712,6 +715,74 @@ class MainActivity : AppCompatActivity() {
      }.onFailure {
       lastReport=""
       val error="Stage 3K failed: ${it.javaClass.simpleName}: ${it.message}"
+      status.text=error
+      generationDialog.fail(error)
+     }
+    }
+   }.start()
+  }
+
+  longSynthesis.setOnClickListener {
+   val typed=inputText.text?.toString().orEmpty()
+   if(typed.isBlank()) {
+    status.text="Stage 3L: enter long Russian text first."
+    return@setOnClickListener
+   }
+   val seed=seedInput.text?.toString()?.trim()?.toIntOrNull()
+   if(seed==null) {
+    status.text="Stage 3L: seed must be a whole number."
+    return@setOnClickListener
+   }
+
+   val preset=qualityMode.selectedItemPosition
+   val generationDialog=GenerationProgressDialog(this,filesDir)
+   generationDialog.show()
+   setGenerationBusy(true)
+   lastReport=""
+   status.text="Stage 3L: preparing long synthesis…"
+
+   Thread {
+    val result=runCatching {
+     XttsLongSynthesis(filesDir).run(
+      text=typed,
+      preset=preset,
+      seed=seed
+     ) { message ->
+      runOnUiThread {
+       status.text=message
+       generationDialog.update(message)
+      }
+     }
+    }
+
+    runOnUiThread {
+     setGenerationBusy(false)
+     result.onSuccess { longResult ->
+      lastReport=longResult.report
+      refreshResults(
+       listOf(longResult.outputFile.name),
+       longResult.outputFile.name
+      )
+      copyReport.isEnabled=true
+      play.isEnabled=true
+      saveWav.isEnabled=true
+      shareWav.isEnabled=true
+      status.text=longResult.report
+
+      val score=if(longResult.similarity.isFinite()) longResult.similarity else 0.0
+      generationDialog.complete(
+       listOf(
+        GenerationProgressDialog.ResultItem(
+         fileName=longResult.outputFile.name,
+         seed=seed,
+         similarity=score,
+         displayName="Длинная озвучка • ${longResult.chunks.size} фрагм."
+        )
+       )
+      )
+     }.onFailure {
+      lastReport=""
+      val error="Stage 3L failed: ${it.javaClass.simpleName}: ${it.message}"
       status.text=error
       generationDialog.fail(error)
      }
