@@ -40,11 +40,11 @@ class MainActivity : AppCompatActivity() {
   }
 
   content.addView(TextView(this).apply {
-   text="XTTS-v2 Android V2 • Stage 3J"
+   text="XTTS-v2 Android V2 • Stage 3K"
    textSize=24f
   })
   content.addView(TextView(this).apply {
-   text="Russian XTTS-v2 • multi-reference conditioning search"
+   text="Russian XTTS-v2 • smooth 4+5 hybrid voice search"
   })
 
   val import=Button(this).apply { text="Import voice WAV (3–6 sec)" }
@@ -104,6 +104,7 @@ class MainActivity : AppCompatActivity() {
   val synthesize3=Button(this).apply { text="Find best voice • 8 variants → Top 3" }
   val profileSearch=Button(this).apply { text="Stage 3I • Find best reference profile" }
   val multiReference=Button(this).apply { text="Stage 3J • Combine Profiles 3/4/5" }
+  val smoothHybrid=Button(this).apply { text="Stage 3K • Smooth the 4+5 voice" }
   val play=Button(this).apply {
    text="Play generated WAV"
    isEnabled=File(filesDir,"xtts_generated.wav").exists()
@@ -138,6 +139,7 @@ class MainActivity : AppCompatActivity() {
   content.addView(synthesize3)
   content.addView(profileSearch)
   content.addView(multiReference)
+  content.addView(smoothHybrid)
   content.addView(play)
   content.addView(saveWav)
   content.addView(shareWav)
@@ -159,7 +161,7 @@ class MainActivity : AppCompatActivity() {
      append("\nONNX models: $modelCount found\n")
      append("Conditioning cache: ${if(cache.exists()) "found" else "missing"}\n")
      append("Generated WAV: ${if(File(filesDir,"xtts_generated.wav").exists()) "found" else "missing"}\n")
-     append("Ready for Stage 3A / 3B / 3C / 3D / 3E / 3F / 3G / 3H / 3I / 3J.")
+     append("Ready for Stage 3A / 3B / 3C / 3D / 3E / 3F / 3G / 3H / 3I / 3J / 3K.")
     }
    }
    .onFailure { status.text="ONNX Runtime error: ${it.message}" }
@@ -306,6 +308,7 @@ class MainActivity : AppCompatActivity() {
    importLong.isEnabled=!busy
    profileSearch.isEnabled=!busy
    multiReference.isEnabled=!busy
+   smoothHybrid.isEnabled=!busy
    if(busy) {
     play.isEnabled=false
     saveWav.isEnabled=false
@@ -628,6 +631,87 @@ class MainActivity : AppCompatActivity() {
      }.onFailure {
       lastReport=""
       val error="Stage 3J failed: ${it.javaClass.simpleName}: ${it.message}"
+      status.text=error
+      generationDialog.fail(error)
+     }
+    }
+   }.start()
+  }
+
+  smoothHybrid.setOnClickListener {
+   val longRef=File(filesDir,"reference_long.wav")
+   if(!longRef.exists()) {
+    status.text="Stage 3K: reference_long.wav missing. Import the long Shorts WAV first."
+    return@setOnClickListener
+   }
+   val typed=inputText.text?.toString().orEmpty()
+   if(typed.isBlank()) {
+    status.text="Stage 3K: enter Russian test text first."
+    return@setOnClickListener
+   }
+
+   val preset=qualityMode.selectedItemPosition
+   val fixedSeed=12346
+   val generationDialog=GenerationProgressDialog(this,filesDir)
+   generationDialog.show()
+   setGenerationBusy(true)
+   lastReport=""
+   status.text="Stage 3K: testing smooth 4+5 hybrids…"
+
+   Thread {
+    val engine=XttsSmoothHybridSearch(filesDir)
+    val result=runCatching {
+     engine.run(
+      longReference=longRef,
+      text=typed,
+      preset=preset,
+      seed=fixedSeed
+     ) { message ->
+      runOnUiThread {
+       status.text=message
+       generationDialog.update(message)
+      }
+     }
+    }
+
+    runOnUiThread {
+     setGenerationBusy(false)
+     result.onSuccess { search ->
+      lastReport=search.report
+      val allNames=search.candidates.map { it.generatedFile.name }
+      val first=search.ranked.first()
+      refreshResults(allNames,first.generatedFile.name)
+      copyReport.isEnabled=true
+      play.isEnabled=true
+      saveWav.isEnabled=true
+      shareWav.isEnabled=true
+      status.text=search.report
+
+      generationDialog.complete(
+       search.ranked.map { candidate ->
+        GenerationProgressDialog.ResultItem(
+         fileName=candidate.generatedFile.name,
+         seed=fixedSeed,
+         similarity=candidate.similarity,
+         displayName=candidate.label
+        )
+       }
+      ) { selected ->
+       val chosen=search.candidates.firstOrNull {
+        it.generatedFile.name==selected.fileName
+       } ?: error("Selected Stage 3K candidate not found")
+
+       engine.activate(chosen)
+       refreshResults(allNames,chosen.generatedFile.name)
+       lastReport=search.report+
+        "\n\nLOCKED BY EAR: ${chosen.label}"+
+        "\nFuture generations now use this Stage 3K conditioning."
+       status.text=lastReport
+       copyReport.isEnabled=true
+      }
+     }.onFailure {
+      lastReport=""
+      val error="Stage 3K failed: ${it.javaClass.simpleName}: ${it.message}"
       status.text=error
       generationDialog.fail(error)
      }

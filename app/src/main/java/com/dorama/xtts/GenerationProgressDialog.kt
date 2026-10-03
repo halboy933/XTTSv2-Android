@@ -34,6 +34,7 @@ class GenerationProgressDialog(
  private val resultLabel=TextView(activity)
  private val resultSpinner=Spinner(activity)
  private val playButton=Button(activity)
+ private val lockButton=Button(activity)
  private val closeButton=Button(activity)
  private var player:MediaPlayer?=null
  private var items:List<ResultItem> = emptyList()
@@ -69,6 +70,10 @@ class GenerationProgressDialog(
    text="▶ Прослушать выбранный вариант"
    visibility=View.GONE
   }
+  lockButton.apply {
+   text="✓ Закрепить выбранный профиль"
+   visibility=View.GONE
+  }
   closeButton.apply {
    text="Закрыть"
    isEnabled=false
@@ -80,6 +85,7 @@ class GenerationProgressDialog(
   content.addView(resultLabel)
   content.addView(resultSpinner)
   content.addView(playButton)
+  content.addView(lockButton)
   content.addView(closeButton)
 
   dialog.setContentView(scroll)
@@ -134,7 +140,7 @@ class GenerationProgressDialog(
   if(dialog.isShowing) message.text=text
  }
 
- fun complete(results:List<ResultItem>) {
+ fun complete(results:List<ResultItem>,onLock:((ResultItem)->Unit)?=null) {
   if(!dialog.isShowing) return
   items=results.sortedByDescending { it.similarity }
   title.text="✓ Генерация завершена"
@@ -153,6 +159,8 @@ class GenerationProgressDialog(
   resultSpinner.visibility=View.VISIBLE
   playButton.visibility=View.VISIBLE
   closeButton.isEnabled=true
+  lockButton.visibility=if(onLock!=null) View.VISIBLE else View.GONE
+  lockButton.isEnabled=true
 
   val labels=items.mapIndexed { index,item ->
    val prefix=if(index==0) "★ " else ""
@@ -165,6 +173,22 @@ class GenerationProgressDialog(
    labels
   )
   resultSpinner.setSelection(0)
+
+  lockButton.setOnClickListener {
+   val pos=resultSpinner.selectedItemPosition
+   if(pos !in items.indices || onLock==null) return@setOnClickListener
+   val chosen=items[pos]
+   runCatching {
+    onLock(chosen)
+   }.onSuccess {
+    lockButton.isEnabled=false
+    lockButton.text="✓ Профиль закреплён"
+    val name=chosen.displayName ?: "seed ${chosen.seed}"
+    message.text=message.text.toString()+"\n✓ Закреплён: $name"
+   }.onFailure {
+    message.text="Ошибка закрепления профиля: ${it.message}"
+   }
+  }
  }
 
  fun fail(text:String) {
