@@ -30,6 +30,52 @@ class XttsConditioning(private val filesDir: File) {
  data class MelData(val channels:Int,val frames:Int,val data:FloatArray)
  data class TensorResult(val shape:LongArray,val data:FloatArray)
 
+ data class ReferenceSegment(
+  val file:File,
+  val index:Int,
+  val startSec:Double,
+  val durationSec:Double
+ )
+
+ fun createReferenceSegments(
+  sourceFile:File,
+  segmentSeconds:Double=5.5,
+  maxSegments:Int=5
+ ):List<ReferenceSegment> {
+  require(sourceFile.exists()) { "Long reference WAV not found" }
+  require(maxSegments>=1) { "maxSegments must be >= 1" }
+  val wav=readWav(sourceFile)
+  val totalSec=wav.samples.size.toDouble()/wav.sampleRate
+  require(totalSec>=10.0) {
+   "Long Shorts WAV should contain at least 10 seconds of clean speech; got %.2f s".format(totalSec)
+  }
+
+  val segmentSamples=(segmentSeconds*wav.sampleRate)
+   .roundToInt()
+   .coerceAtMost(wav.samples.size)
+  require(segmentSamples>=wav.sampleRate*3) { "Reference segment is too short" }
+
+  val available=wav.samples.size-segmentSamples
+  val count=if(available<=0) 1 else maxSegments
+  val outDir=File(filesDir,"profile_segments")
+  outDir.deleteRecursively()
+  outDir.mkdirs()
+
+  return (0 until count).map { i ->
+   val start=if(count==1) 0 else ((available.toLong()*i)/(count-1)).toInt()
+   val end=(start+segmentSamples).coerceAtMost(wav.samples.size)
+   val samples=wav.samples.copyOfRange(start,end)
+   val file=File(outDir,"reference_segment_${i+1}.wav")
+   writePcm16Wav(file,samples,wav.sampleRate)
+   ReferenceSegment(
+    file=file,
+    index=i+1,
+    startSec=start.toDouble()/wav.sampleRate,
+    durationSec=samples.size.toDouble()/wav.sampleRate
+   )
+  }
+ }
+
  fun computeSpeakerEmbedding(wavFile:File):FloatArray {
   require(wavFile.exists()) { "WAV not found: ${wavFile.name}" }
   val speakerModel=findRequired("speaker_encoder.onnx")
@@ -195,6 +241,31 @@ class XttsConditioning(private val filesDir: File) {
    if(x>maxAbs) maxAbs=x
   }
   return Pair(if(a.isEmpty()) 0.0 else sum/a.size,maxAbs)
+ }
+
+ private fun writePcm16Wav(file:File,samples:FloatArray,sampleRate:Int) {
+  val dataSize=samples.size*2
+  val bb=ByteBuffer.allocate(44+dataSize).order(ByteOrder.LITTLE_ENDIAN)
+  bb.put("RIFF".toByteArray(StandardCharsets.US_ASCII))
+  bb.putInt(36+dataSize)
+  bb.put("WAVE".toByteArray(StandardCharsets.US_ASCII))
+  bb.put("fmt ".toByteArray(StandardCharsets.US_ASCII))
+  bb.putInt(16)
+  bb.putShort(1.toShort())
+  bb.putShort(1.toShort())
+  bb.putInt(sampleRate)
+  bb.putInt(sampleRate*2)
+  bb.putShort(2.toShort())
+  bb.putShort(16.toShort())
+  bb.put("data".toByteArray(StandardCharsets.US_ASCII))
+  bb.putInt(dataSize)
+  for(sample in samples) {
+   val v=(sample.coerceIn(-1f,1f)*32767f)
+    .roundToInt()
+    .coerceIn(-32768,32767)
+   bb.putShort(v.toShort())
+  }
+  file.writeBytes(bb.array())
  }
 
  private fun readWav(file:File):WavData {

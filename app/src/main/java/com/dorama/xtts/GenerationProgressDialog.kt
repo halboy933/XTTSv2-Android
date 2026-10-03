@@ -23,7 +23,8 @@ class GenerationProgressDialog(
  data class ResultItem(
   val fileName:String,
   val seed:Int,
-  val similarity:Double
+  val similarity:Double,
+  val displayName:String?=null
  )
 
  private val dialog=Dialog(activity)
@@ -142,7 +143,9 @@ class GenerationProgressDialog(
    append("Готово. Ниже лучшие варианты по speaker similarity.\n")
    if(items.isNotEmpty()) {
     val best=items.first()
-    append("Лучший по speaker similarity: seed ${best.seed} • ")
+    append("Лучший по speaker similarity: ")
+    append(best.displayName ?: "seed ${best.seed}")
+    append(" • ")
     append(String.format(Locale.US,"%.4f",best.similarity))
    }
   }
@@ -153,7 +156,8 @@ class GenerationProgressDialog(
 
   val labels=items.mapIndexed { index,item ->
    val prefix=if(index==0) "★ " else ""
-   prefix+"seed ${item.seed} • similarity "+String.format(Locale.US,"%.4f",item.similarity)
+   val name=item.displayName ?: "seed ${item.seed}"
+   prefix+name+" • similarity "+String.format(Locale.US,"%.4f",item.similarity)
   }
   resultSpinner.adapter=ArrayAdapter(
    activity,

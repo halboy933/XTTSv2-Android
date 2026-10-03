@@ -8,6 +8,13 @@ import kotlin.math.sqrt
 class XttsVoiceSimilarity(private val filesDir:File) {
  private val referenceEmbeddingFile=File(filesDir,"conditioning_cache/speaker_embedding.f32")
 
+ fun scoreAgainstEmbedding(reference:FloatArray,generatedWav:File):Double {
+  require(reference.size==512) { "Reference speaker embedding invalid: ${reference.size}" }
+  val generated=XttsConditioning(filesDir).computeSpeakerEmbedding(generatedWav)
+  require(generated.size==512) { "Generated speaker embedding invalid: ${generated.size}" }
+  return cosineSimilarity(reference,generated)
+ }
+
  fun score(generatedWav:File):Double {
   require(referenceEmbeddingFile.exists()) {
    "Reference speaker embedding missing. Run Stage 3A first."
